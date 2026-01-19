@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: backend
 spec:
-  replicas: 2
+  replicas: {{ .Values.backend.replicaCount }}
   selector:
     matchLabels:
       app: backend
@@ -26,3 +26,4 @@ spec:
               value: "{{ .Values.backend.env.DB_PASSWORD }}"
             - name: DB_NAME
               value: "{{ .Values.backend.env.DB_NAME }}"
+
