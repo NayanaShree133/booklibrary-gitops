@@ -1,7 +1,7 @@
 # Frontend Service Configuration
 frontend:
   name: frontend
-  replicaCount: 3
+  replicaCount: 4
   image: 904119424941.dkr.ecr.ap-south-1.amazonaws.com/todo-frontend:v4
   port: 80
   targetPort: 80
@@ -57,4 +57,5 @@ ingress:
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+
 
