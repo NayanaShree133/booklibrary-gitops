@@ -3,24 +3,60 @@ kind: Application
 metadata:
   name: booklibrary
   namespace: argocd
+  # Add finalizers to enable cascading delete
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
+  # Project name (use 'default' project)
   project: default
-
+  
+  # Source configuration
   source:
+    # Your GitHub repository URL
     repoURL: https://github.com/NayanaShree133/booklibrary-gitops.git
     targetRevision: main
-    path: helm/booklibrary
+    path: helm/booklibrary  # Make sure this path matches your actual folder name
+    
+    # Helm specific configuration
     helm:
       valueFiles:
         - values.yaml
-
+      # Optional: Set release name
+      releaseName: booklibrary
+  
+  # Destination configuration
   destination:
+    # Target Kubernetes cluster
     server: https://kubernetes.default.svc
+    # Target namespace
     namespace: default
-
+  
+  # Sync policy configuration
   syncPolicy:
+    # Automated sync settings
     automated:
-      prune: true
-      selfHeal: true
+      # Automatically sync when Git changes are detected
+      prune: true       # Delete resources that are no longer in Git
+      selfHeal: true    # Automatically sync if cluster state drifts from Git
+      allowEmpty: false # Don't sync if the Git directory is empty
+    
+    # Sync options
     syncOptions:
-      - CreateNamespace=true
+      - CreateNamespace=true   # Auto-create namespace if it doesn't exist
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true         # Prune resources as last step
+    
+    # Retry configuration
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  # Ignore differences for certain fields (optional)
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas  # Ignore replica count differences (useful for HPA)
