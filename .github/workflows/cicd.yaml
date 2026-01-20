@@ -1,0 +1,104 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'application/frontend/**'
+      - 'application/backend/**'
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: 904119424941.dkr.ecr.ap-south-1.amazonaws.com
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      run: |
+        aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+
+    - name: Check for frontend changes
+      id: frontend-changes
+      run: |
+        if git diff --name-only HEAD^ HEAD | grep -q '^application/frontend/'; then
+          echo "changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build and push frontend
+      if: steps.frontend-changes.outputs.changed == 'true'
+      id: frontend
+      run: |
+        cd application/frontend
+        IMAGE_TAG=v$(date +%Y%m%d-%H%M%S)
+        echo "Building frontend with tag: $IMAGE_TAG"
+        docker build -t ${{ env.ECR_REGISTRY }}/todo-frontend:$IMAGE_TAG .
+        docker push ${{ env.ECR_REGISTRY }}/todo-frontend:$IMAGE_TAG
+        echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Check for backend changes
+      id: backend-changes
+      run: |
+        if git diff --name-only HEAD^ HEAD | grep -q '^application/backend/'; then
+          echo "changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build and push backend
+      if: steps.backend-changes.outputs.changed == 'true'
+      id: backend
+      run: |
+        cd application/backend
+        IMAGE_TAG=v$(date +%Y%m%d-%H%M%S)
+        echo "Building backend with tag: $IMAGE_TAG"
+        docker build -t ${{ env.ECR_REGISTRY }}/todo-backend:$IMAGE_TAG .
+        docker push ${{ env.ECR_REGISTRY }}/todo-backend:$IMAGE_TAG
+        echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Update Helm values for frontend
+      if: steps.frontend-changes.outputs.changed == 'true'
+      run: |
+        sed -i "s|image: .*todo-frontend:.*|image: ${{ env.ECR_REGISTRY }}/todo-frontend:${{ steps.frontend.outputs.tag }}|" helm/booklibrary/values.yaml
+
+    - name: Update Helm values for backend
+      if: steps.backend-changes.outputs.changed == 'true'
+      run: |
+        sed -i "s|image: .*todo-backend:.*|image: ${{ env.ECR_REGISTRY }}/todo-backend:${{ steps.backend.outputs.tag }}|" helm/booklibrary/values.yaml
+
+    - name: Commit and push changes
+      if: steps.frontend-changes.outputs.changed == 'true' || steps.backend-changes.outputs.changed == 'true'
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
+        git add helm/booklibrary/values.yaml
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          FRONTEND_TAG="${{ steps.frontend.outputs.tag }}"
+          BACKEND_TAG="${{ steps.backend.outputs.tag }}"
+          if [ ! -z "$FRONTEND_TAG" ] && [ ! -z "$BACKEND_TAG" ]; then
+            git commit -m "Update image tags: frontend:$FRONTEND_TAG, backend:$BACKEND_TAG [skip ci]"
+          elif [ ! -z "$FRONTEND_TAG" ]; then
+            git commit -m "Update frontend image tag: $FRONTEND_TAG [skip ci]"
+          elif [ ! -z "$BACKEND_TAG" ]; then
+            git commit -m "Update backend image tag: $BACKEND_TAG [skip ci]"
+          fi
+          git push
+        fi
